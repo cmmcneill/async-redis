@@ -5,8 +5,19 @@ const commands = require('redis-commands').list;
 const objectDecorator = require('./object-decorator');
 
 const AsyncRedis = function (args) {
-  const client = Array.isArray(args) ? redis.createClient(...args) : redis.createClient(args);
-  return AsyncRedis.decorate(client);
+  let client;
+  let timeout = false;
+  if (Array.isArray(args)) {
+    let options = args.find(arg => typeof arg === 'object');
+    if (options && options.hasOwnProperty('command_timeout')) {
+      timeout = options.command_timeout;
+      delete options.command_timeout;
+    }
+    client = redis.createClient(...args);
+  } else {
+    client = redis.createClient(args);
+  }
+  return AsyncRedis.decorate(client, timeout);
 };
 
 AsyncRedis.createClient = (...args) => new AsyncRedis(args);
@@ -16,7 +27,7 @@ const commandsToSkipSet = new Set(['multi']);
 // this is the set of commands to promisify
 const commandSet = new Set(commands.filter(c => !commandsToSkipSet.has(c)));
 
-AsyncRedis.decorate = redisClient => objectDecorator(redisClient, (name, method) => {
+AsyncRedis.decorate = (redisClient, timeout) => objectDecorator(redisClient, (name, method) => {
   if (commandSet.has(name)) {
     return (...args) => new Promise((resolve, reject) => {
       args.push((error, ...results) => {
@@ -26,6 +37,9 @@ AsyncRedis.decorate = redisClient => objectDecorator(redisClient, (name, method)
           resolve(...results);
         }
       });
+      if (timeout) {
+        setTimeout(() => reject(new Error('Redis command timed out')), timeout);
+      }
       method.apply(redisClient, args);
     });
   }
