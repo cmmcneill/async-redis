@@ -30,15 +30,17 @@ const commandSet = new Set(commands.filter(c => !commandsToSkipSet.has(c)));
 AsyncRedis.decorate = (redisClient, timeout) => objectDecorator(redisClient, (name, method) => {
   if (commandSet.has(name)) {
     return (...args) => new Promise((resolve, reject) => {
+      let timeoutId;
       args.push((error, ...results) => {
         if (error) {
           reject(error, ...results);
         } else {
           resolve(...results);
         }
+        clearTimeout(timeoutId);
       });
       if (timeout) {
-        setTimeout(() => reject(new Error('Redis command timed out')), timeout);
+        timeoutId = setTimeout(() => reject(new Error('Redis command timed out')), timeout);
       }
       method.apply(redisClient, args);
     });
